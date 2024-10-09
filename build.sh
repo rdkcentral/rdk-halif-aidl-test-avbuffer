@@ -56,7 +56,7 @@ export VERSION="current"
  
 export LINUX_BINDER_DIR="${WORK_DIR}/../rdk-halif-binder"
 export INSTALL_DIR="${WORK_DIR}/output"
- 
+ """
 ###########################################################
 # Clone hal repo
 ###########################################################
@@ -72,7 +72,7 @@ clone_hal_repo() {
         exit 1
     fi
 }
-
+"""
  
 ###########################################################
 # Generate hal proxy & native interface

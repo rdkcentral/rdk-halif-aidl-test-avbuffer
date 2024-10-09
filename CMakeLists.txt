@@ -37,17 +37,17 @@ message(STATUS "AVBUFFER_AIDL_VERSION set to ${AVBUFFER_AIDL_VERSION}")
 
 # Add subdirectories
 # These will invoke the CMakeLists.txt inside MockService and L1Test directories
-add_subdirectory(MockService)
-#add_subdirectory(L1Test)
+#add_subdirectory(MockService)
+add_subdirectory(L1Test)
 
 ## Final installation targets
 #install(DIRECTORY ${CMAKE_SOURCE_DIR}/MockService
-#        DESTINATION ${CMAKE_INSTALL_PREFIX}
-#        PATTERN "CMakeLists.txt" EXCLUDE)
+# DESTINATION ${CMAKE_INSTALL_PREFIX}
+# PATTERN "CMakeLists.txt" EXCLUDE)
 
-#install(DIRECTORY ${CMAKE_SOURCE_DIR}/L1Test
-#        DESTINATION ${CMAKE_INSTALL_PREFIX}
-#        PATTERN "CMakeLists.txt" EXCLUDE)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/L1Test
+        DESTINATION ${CMAKE_INSTALL_PREFIX}
+        PATTERN "CMakeLists.txt" EXCLUDE)
 
 message(STATUS "Avbuffer project setup is complete.")
 
