@@ -190,6 +190,13 @@ class VTS_L3_AVBuffer : public virtual UTCore
 
         static void TearDownTestSuite()
         {
+            // AV Buffer 0.2.1.0: the helper is a reference-counted singleton owned by the vendor library.
+            // Release the reference acquired in SetUpTestSuite(); never delete the instance directly.
+            if (sAVbufferHelper != NULL)
+            {
+                releaseAVBufferHelperInstance(sAVbufferHelper);
+                sAVbufferHelper = NULL;
+            }
         }
 
         static void checkMetrics(Pool pool,int32_t sizeFree,int32_t sizeUsed)
