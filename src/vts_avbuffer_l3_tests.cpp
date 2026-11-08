@@ -136,6 +136,9 @@ static std::vector<int64_t> sBufferHandles;
 static std::vector<Pool> sPoolsCreated;
 static sp<IVideoDecoderManager> sVideoDecoderManager;
 static IAVBufferHelper* sAVbufferHelper;
+/* Decoders opened for secure pools; closed in destroyPools() after the pools are destroyed */
+static std::vector<std::pair<sp<IVideoDecoder>, sp<videodecoder::IVideoDecoderController>>> sOpenedVideoDecoders;
+static std::vector<std::pair<sp<IAudioDecoder>, sp<audiodecoder::IAudioDecoderController>>> sOpenedAudioDecoders;
 static std::mutex sResourceMutex;
 
 UT_status_t vts_audiodecoder_getService()
@@ -240,6 +243,32 @@ class VTS_L3_AVBuffer : public virtual UTCore
             if (secureHeap && !gAVBuffer_hfp.supportSecure)
             {
                 UT_IGNORE_TEST() << "secureHeapBytes is not defined or is zero in the HFP";
+            }
+
+            // Secure pools need an opened decoder, otherwise EX_ILLEGAL_STATE (IAVBuffer)
+            if (secureHeap && testSelection == AUDIO_TEST)
+            {
+                sp<IAudioDecoder> audioDecoder;
+                sp<audiodecoder::IAudioDecoderController> audioDecoderController;
+                AVBUFFER_OPEN_SECURE_AUDIODECODER(_audioDecoderId, audioDecoder, audioDecoderController);
+                if (audioDecoderController == nullptr)
+                {
+                    UT_IGNORE_TEST() << "Audio decoder cannot be opened in secure mode";
+                }
+                std::lock_guard<std::mutex> lock(sResourceMutex);
+                sOpenedAudioDecoders.emplace_back(audioDecoder, audioDecoderController);
+            }
+            else if (secureHeap)
+            {
+                sp<IVideoDecoder> videoDecoder;
+                sp<videodecoder::IVideoDecoderController> videoDecoderController;
+                AVBUFFER_OPEN_SECURE_VIDEODECODER(_videoDecoderId, videoDecoder, videoDecoderController);
+                if (videoDecoderController == nullptr)
+                {
+                    UT_IGNORE_TEST() << "Video decoder cannot be opened in secure mode";
+                }
+                std::lock_guard<std::mutex> lock(sResourceMutex);
+                sOpenedVideoDecoders.emplace_back(videoDecoder, videoDecoderController);
             }
 
             if(testSelection == AUDIO_TEST){
@@ -354,6 +383,18 @@ class VTS_L3_AVBuffer : public virtual UTCore
             }
             sPoolsCreated.clear();
             sSpaceListeners.clear();
+
+            // Close the decoders opened for secure pools, now that the pools are destroyed
+            for (auto& [videoDecoder, videoDecoderController] : sOpenedVideoDecoders)
+            {
+                AVBUFFER_CLOSE_VIDEODECODER(videoDecoder, videoDecoderController);
+            }
+            sOpenedVideoDecoders.clear();
+            for (auto& [audioDecoder, audioDecoderController] : sOpenedAudioDecoders)
+            {
+                AVBUFFER_CLOSE_AUDIODECODER(audioDecoder, audioDecoderController);
+            }
+            sOpenedAudioDecoders.clear();
         }
 
         void runTest(int8_t testSelection,bool isConcurrent, uint8_t testConfig){
