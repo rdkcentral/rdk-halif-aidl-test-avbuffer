@@ -114,7 +114,8 @@ extern sp<IAVBuffer> gAVBufferManager;
  * Secure pools need a configured (opened) decoder, otherwise createVideoPool()/createAudioPool()
  * return EX_ILLEGAL_STATE (IAVBuffer). The macros below open a decoder in secure mode with its first
  * supported codec before a secure pool is created, and close it after the pool is destroyed.
- * If the decoder cannot be opened in secure mode, the controller is left null so the caller can skip.
+ * If the decoder does not support secure mode (capabilities), the controller is left null so the caller can
+ * skip. If secure mode is supported but open() fails, the test fails (setup failures are not hidden).
  */
 
 /* Minimal decoder controller listeners: the decoder is only opened, no frames are decoded */
@@ -156,6 +157,9 @@ public:
         UT_LOG_INFO("Result open(IN:videoDecoderId:[%d]), status:[isOK:%s, exception:%s]", (videoDecoderId).value, \
                     UT_Control_GetMapString(bool_mapTable, _status.isOk()), \
                     UT_Control_GetMapString(statusException_mapTable, _status.exceptionCode())); \
+        /* Secure mode and the codec are supported (capabilities), so open() must succeed */ \
+        UT_ASSERT_TRUE(_status.isOk()); \
+        UT_ASSERT_TRUE(videoDecoderController != nullptr); \
         videodecoder::State _state = videodecoder::State::UNKNOWN; \
         for (int _t = 0; videoDecoderController != nullptr && _t < AVBUFFER_DECODER_READY_TIMEOUT_MS / 10; ++_t) \
         { \
@@ -197,6 +201,9 @@ public:
         UT_LOG_INFO("Result open(IN:audioDecoderId:[%d]), status:[isOK:%s, exception:%s]", (audioDecoderId).value, \
                     UT_Control_GetMapString(bool_mapTable, _status.isOk()), \
                     UT_Control_GetMapString(statusException_mapTable, _status.exceptionCode())); \
+        /* Secure mode and the codec are supported (capabilities), so open() must succeed */ \
+        UT_ASSERT_TRUE(_status.isOk()); \
+        UT_ASSERT_TRUE(audioDecoderController != nullptr); \
         audiodecoder::State _state = audiodecoder::State::UNKNOWN; \
         for (int _t = 0; audioDecoderController != nullptr && _t < AVBUFFER_DECODER_READY_TIMEOUT_MS / 10; ++_t) \
         { \
