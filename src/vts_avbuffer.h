@@ -88,6 +88,10 @@
 
 #include "com/rdk/hal/avbuffer/IAVBuffer.h"
 #include "com/rdk/hal/avbuffer/BnAVBufferSpaceListener.h"
+#include "com/rdk/hal/videodecoder/IVideoDecoderManager.h"
+#include "com/rdk/hal/videodecoder/BnVideoDecoderControllerListener.h"
+#include "com/rdk/hal/audiodecoder/IAudioDecoderManager.h"
+#include "com/rdk/hal/audiodecoder/BnAudioDecoderControllerListener.h"
 
 #define MAX_WAIT_MS 10
 #define MAX_FINAL_WAIT_MS 5000
@@ -105,6 +109,122 @@ using namespace com::rdk::hal::videodecoder;
 using namespace com::rdk::hal::audiodecoder;
 
 extern sp<IAVBuffer> gAVBufferManager;
+
+/*
+ * Secure pools need a configured (opened) decoder, otherwise createVideoPool()/createAudioPool()
+ * return EX_ILLEGAL_STATE (IAVBuffer). The macros below open a decoder in secure mode with its first
+ * supported codec before a secure pool is created, and close it after the pool is destroyed.
+ * If the decoder does not support secure mode (capabilities), the controller is left null so the caller can
+ * skip. If secure mode is supported but open() fails, the test fails (setup failures are not hidden).
+ */
+
+/* Minimal decoder controller listeners: the decoder is only opened, no frames are decoded */
+class AVBufferVideoDecoderListener : public videodecoder::BnVideoDecoderControllerListener
+{
+public:
+    Status onFrameOutput(int64_t, int64_t, const std::optional<videodecoder::FrameMetadata>&) override { return Status::ok(); }
+    Status onEndOfStream() override { return Status::ok(); }
+    Status onUserDataOutput(int64_t, const std::vector<uint8_t>&) override { return Status::ok(); }
+    Status onDecodeBufferAvailable() override { return Status::ok(); }
+};
+
+class AVBufferAudioDecoderListener : public audiodecoder::BnAudioDecoderControllerListener
+{
+public:
+    Status onFrameOutput(int64_t, int64_t, const std::optional<audiodecoder::FrameMetadata>&) override { return Status::ok(); }
+    Status onEndOfStream() override { return Status::ok(); }
+    Status onDecodeBufferAvailable() override { return Status::ok(); }
+};
+
+#define AVBUFFER_DECODER_READY_TIMEOUT_MS 2000
+
+#define AVBUFFER_OPEN_SECURE_VIDEODECODER(videoDecoderId, videoDecoder, videoDecoderController) \
+    do { \
+        videoDecoderController = nullptr; \
+        sp<IVideoDecoderManager> _manager = android::interface_cast<IVideoDecoderManager>( \
+            defaultServiceManager()->getService(String16(IVideoDecoderManager::serviceName().c_str()))); \
+        videodecoder::Capabilities _caps; \
+        if (_manager == nullptr || !_manager->getVideoDecoder(videoDecoderId, &videoDecoder).isOk() || \
+            videoDecoder == nullptr || !videoDecoder->getCapabilities(&_caps).isOk() || \
+            !_caps.supportsSecure || _caps.supportedCodecs.empty()) \
+        { \
+            UT_LOG_INFO("Video decoder [%d] cannot be opened in secure mode", (videoDecoderId).value); \
+            break; \
+        } \
+        UT_LOG_INFO("Calling open(IN:videoDecoderId:[%d], secure:[true])", (videoDecoderId).value); \
+        Status _status = videoDecoder->open(_caps.supportedCodecs[0].codec, true, \
+                                            new AVBufferVideoDecoderListener(), &videoDecoderController); \
+        UT_LOG_INFO("Result open(IN:videoDecoderId:[%d]), status:[isOK:%s, exception:%s]", (videoDecoderId).value, \
+                    UT_Control_GetMapString(bool_mapTable, _status.isOk()), \
+                    UT_Control_GetMapString(statusException_mapTable, _status.exceptionCode())); \
+        /* Secure mode and the codec are supported (capabilities), so open() must succeed */ \
+        UT_ASSERT_TRUE(_status.isOk()); \
+        UT_ASSERT_TRUE(videoDecoderController != nullptr); \
+        videodecoder::State _state = videodecoder::State::UNKNOWN; \
+        for (int _t = 0; videoDecoderController != nullptr && _t < AVBUFFER_DECODER_READY_TIMEOUT_MS / 10; ++_t) \
+        { \
+            if (videoDecoder->getState(&_state).isOk() && _state == videodecoder::State::READY) break; \
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); \
+        } \
+        if (videoDecoderController != nullptr) { UT_ASSERT_EQUAL(_state, videodecoder::State::READY); } \
+    } while (0)
+
+#define AVBUFFER_CLOSE_VIDEODECODER(videoDecoder, videoDecoderController) \
+    do { \
+        bool _closed = false; \
+        Status _status = videoDecoder->close(videoDecoderController, &_closed); \
+        UT_LOG_INFO("Result close(video decoder), closed:[%s], status:[isOK:%s, exception:%s]", \
+                    UT_Control_GetMapString(bool_mapTable, _closed), \
+                    UT_Control_GetMapString(bool_mapTable, _status.isOk()), \
+                    UT_Control_GetMapString(statusException_mapTable, _status.exceptionCode())); \
+        UT_ASSERT_TRUE(_status.isOk()); \
+        UT_ASSERT_TRUE(_closed); \
+        videoDecoderController = nullptr; \
+    } while (0)
+
+#define AVBUFFER_OPEN_SECURE_AUDIODECODER(audioDecoderId, audioDecoder, audioDecoderController) \
+    do { \
+        audioDecoderController = nullptr; \
+        sp<IAudioDecoderManager> _manager = android::interface_cast<IAudioDecoderManager>( \
+            defaultServiceManager()->getService(String16(IAudioDecoderManager::serviceName().c_str()))); \
+        audiodecoder::Capabilities _caps; \
+        if ((audioDecoderId).value == IAudioDecoder::Id::UNDEFINED || _manager == nullptr || \
+            !_manager->getAudioDecoder(audioDecoderId, &audioDecoder).isOk() || audioDecoder == nullptr || \
+            !audioDecoder->getCapabilities(&_caps).isOk() || !_caps.supportsSecure || _caps.supportedCodecs.empty()) \
+        { \
+            UT_LOG_INFO("Audio decoder [%d] cannot be opened in secure mode", (audioDecoderId).value); \
+            break; \
+        } \
+        UT_LOG_INFO("Calling open(IN:audioDecoderId:[%d], secure:[true])", (audioDecoderId).value); \
+        Status _status = audioDecoder->open(_caps.supportedCodecs[0], true, \
+                                            new AVBufferAudioDecoderListener(), &audioDecoderController); \
+        UT_LOG_INFO("Result open(IN:audioDecoderId:[%d]), status:[isOK:%s, exception:%s]", (audioDecoderId).value, \
+                    UT_Control_GetMapString(bool_mapTable, _status.isOk()), \
+                    UT_Control_GetMapString(statusException_mapTable, _status.exceptionCode())); \
+        /* Secure mode and the codec are supported (capabilities), so open() must succeed */ \
+        UT_ASSERT_TRUE(_status.isOk()); \
+        UT_ASSERT_TRUE(audioDecoderController != nullptr); \
+        audiodecoder::State _state = audiodecoder::State::UNKNOWN; \
+        for (int _t = 0; audioDecoderController != nullptr && _t < AVBUFFER_DECODER_READY_TIMEOUT_MS / 10; ++_t) \
+        { \
+            if (audioDecoder->getState(&_state).isOk() && _state == audiodecoder::State::READY) break; \
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); \
+        } \
+        if (audioDecoderController != nullptr) { UT_ASSERT_EQUAL(_state, audiodecoder::State::READY); } \
+    } while (0)
+
+#define AVBUFFER_CLOSE_AUDIODECODER(audioDecoder, audioDecoderController) \
+    do { \
+        bool _closed = false; \
+        Status _status = audioDecoder->close(audioDecoderController, &_closed); \
+        UT_LOG_INFO("Result close(audio decoder), closed:[%s], status:[isOK:%s, exception:%s]", \
+                    UT_Control_GetMapString(bool_mapTable, _closed), \
+                    UT_Control_GetMapString(bool_mapTable, _status.isOk()), \
+                    UT_Control_GetMapString(statusException_mapTable, _status.exceptionCode())); \
+        UT_ASSERT_TRUE(_status.isOk()); \
+        UT_ASSERT_TRUE(_closed); \
+        audioDecoderController = nullptr; \
+    } while (0)
 
 
 #define AVBUFFER_GETMETRICS(avBufferManager, secureHeap, heapMetrics) \
