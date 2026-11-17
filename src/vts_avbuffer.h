@@ -166,7 +166,15 @@ public:
             if (videoDecoder->getState(&_state).isOk() && _state == videodecoder::State::READY) break; \
             std::this_thread::sleep_for(std::chrono::milliseconds(10)); \
         } \
-        if (videoDecoderController != nullptr) { UT_ASSERT_EQUAL(_state, videodecoder::State::READY); } \
+        if (videoDecoderController != nullptr && _state != videodecoder::State::READY) \
+        { \
+            /* Close the opened decoder before failing, so it is not left open for the next tests */ \
+            UT_LOG_ERROR("Video decoder [%d] did not reach READY after open()", (videoDecoderId).value); \
+            bool _closed = false; \
+            videoDecoder->close(videoDecoderController, &_closed); \
+            videoDecoderController = nullptr; \
+            UT_ASSERT_EQUAL(_state, videodecoder::State::READY); \
+        } \
     } while (0)
 
 #define AVBUFFER_CLOSE_VIDEODECODER(videoDecoder, videoDecoderController) \
@@ -210,7 +218,15 @@ public:
             if (audioDecoder->getState(&_state).isOk() && _state == audiodecoder::State::READY) break; \
             std::this_thread::sleep_for(std::chrono::milliseconds(10)); \
         } \
-        if (audioDecoderController != nullptr) { UT_ASSERT_EQUAL(_state, audiodecoder::State::READY); } \
+        if (audioDecoderController != nullptr && _state != audiodecoder::State::READY) \
+        { \
+            /* Close the opened decoder before failing, so it is not left open for the next tests */ \
+            UT_LOG_ERROR("Audio decoder [%d] did not reach READY after open()", (audioDecoderId).value); \
+            bool _closed = false; \
+            audioDecoder->close(audioDecoderController, &_closed); \
+            audioDecoderController = nullptr; \
+            UT_ASSERT_EQUAL(_state, audiodecoder::State::READY); \
+        } \
     } while (0)
 
 #define AVBUFFER_CLOSE_AUDIODECODER(audioDecoder, audioDecoderController) \

@@ -531,14 +531,17 @@ UT_ADD_TEST(VTS_L3_AVBuffer, seq_sec_audiopool)
 
 UT_ADD_TEST(VTS_L3_AVBuffer, seq_sec_audiopoolpcm)
 {
-    uint8_t testConfig = SECUREHEAP_TEST;
+    /* Audio ID UNDEFINED (system PCM) has no decoder that can be configured, so a secure pool
+     * must be refused with EX_ILLEGAL_STATE (IAVBuffer.createAudioPool) */
+    if (!gAVBuffer_hfp.supportSecure)
+    {
+        UT_IGNORE_TEST() << "secureHeapBytes is not defined or is zero in the HFP";
+    }
     IAudioDecoder::Id _audioDecoderId;
     _audioDecoderId.value = IAudioDecoder::Id::UNDEFINED;
-    IVideoDecoder::Id _videoDecoderId;
-    _videoDecoderId.value = IVideoDecoder::Id::UNDEFINED;
-
-    this->AvBufferTest(_audioDecoderId,_videoDecoderId,testConfig,AUDIO_TEST);
-    this->destroyPools(testConfig);
+    sp<IAVBufferSpaceListener> listener = new AVBufferSpaceListener();
+    Pool pool;
+    AVBUFFER_CREATE_AUDIOPOOL_FAILURE(gAVBufferManager, true, _audioDecoderId, listener, pool, Status::EX_ILLEGAL_STATE);
 }
 
 UT_ADD_TEST(VTS_L3_AVBuffer, seq_sec_audiopool_alloc)
