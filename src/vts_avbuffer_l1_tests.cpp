@@ -601,30 +601,9 @@ UT_ADD_TEST(VTS_L1_AVBuffer, getAllPoolMetrics_pos)
 
     sp<IAVBufferSpaceListener> listener = new AVBufferSpaceListener();
 
-    sp<IVideoDecoder> videoDecoder;
-    sp<videodecoder::IVideoDecoderController> videoDecoderController;
-    sp<IAudioDecoder> audioDecoder;
-    sp<audiodecoder::IAudioDecoderController> audioDecoderController;
-
-    for (bool secureHeap : {false, true})
+    // Non-secure only: secure pools need an opened decoder, covered by L3
+    const bool secureHeap = false;
     {
-        if (secureHeap)
-        {
-            if (!gAVBuffer_hfp.supportSecure)
-            {
-                continue;
-            }
-            // Secure pools need opened decoders, otherwise EX_ILLEGAL_STATE (IAVBuffer)
-            AVBUFFER_OPEN_SECURE_VIDEODECODER(videoDecoderId, videoDecoder, videoDecoderController);
-            AVBUFFER_OPEN_SECURE_AUDIODECODER(audioDecoderId, audioDecoder, audioDecoderController);
-            if (videoDecoderController == nullptr || audioDecoderController == nullptr)
-            {
-                UT_LOG_INFO("Decoders cannot be opened in secure mode, skipping the secure heap check");
-                if (videoDecoderController != nullptr) { AVBUFFER_CLOSE_VIDEODECODER(videoDecoder, videoDecoderController); }
-                if (audioDecoderController != nullptr) { AVBUFFER_CLOSE_AUDIODECODER(audioDecoder, audioDecoderController); }
-                continue;
-            }
-        }
 
         std::vector<PoolMetrics> poolMetrics;
 
@@ -673,12 +652,6 @@ UT_ADD_TEST(VTS_L1_AVBuffer, getAllPoolMetrics_pos)
             UT_ASSERT_NOT_EQUAL(metrics.poolHandle.handle, -1);
             UT_ASSERT_GREATER_EQUAL(metrics.bytesUsed, 0);
             UT_ASSERT_GREATER_EQUAL(metrics.bytesTotal, metrics.bytesUsed);
-        }
-
-        if (secureHeap)
-        {
-            AVBUFFER_CLOSE_VIDEODECODER(videoDecoder, videoDecoderController);
-            AVBUFFER_CLOSE_AUDIODECODER(audioDecoder, audioDecoderController);
         }
     }
 }
@@ -1311,30 +1284,9 @@ UT_ADD_TEST(VTS_L1_AVBuffer, getAllocList_pos)
 
     sp<IAVBufferSpaceListener> listener = new AVBufferSpaceListener();
 
-    sp<IVideoDecoder> videoDecoder;
-    sp<videodecoder::IVideoDecoderController> videoDecoderController;
-    sp<IAudioDecoder> audioDecoder;
-    sp<audiodecoder::IAudioDecoderController> audioDecoderController;
-
-    for (bool secureHeap : {false, true})
+    // Non-secure only: secure pools need an opened decoder, covered by L3
+    const bool secureHeap = false;
     {
-        if (secureHeap)
-        {
-            if (!gAVBuffer_hfp.supportSecure)
-            {
-                continue;
-            }
-            // Secure pools need opened decoders, otherwise EX_ILLEGAL_STATE (IAVBuffer)
-            AVBUFFER_OPEN_SECURE_VIDEODECODER(videoDecoderId, videoDecoder, videoDecoderController);
-            AVBUFFER_OPEN_SECURE_AUDIODECODER(audioDecoderId, audioDecoder, audioDecoderController);
-            if (videoDecoderController == nullptr || audioDecoderController == nullptr)
-            {
-                UT_LOG_INFO("Decoders cannot be opened in secure mode, skipping the secure heap check");
-                if (videoDecoderController != nullptr) { AVBUFFER_CLOSE_VIDEODECODER(videoDecoder, videoDecoderController); }
-                if (audioDecoderController != nullptr) { AVBUFFER_CLOSE_AUDIODECODER(audioDecoder, audioDecoderController); }
-                continue;
-            }
-        }
 
         AVBUFFER_CREATE_VIDEOPOOL_SUCCESS(gAVBufferManager, secureHeap, videoDecoderId, listener, videoPool);
         AVBUFFER_CREATE_AUDIOPOOL_SUCCESS(gAVBufferManager, secureHeap, audioDecoderId, listener, audioPool);
@@ -1356,12 +1308,6 @@ UT_ADD_TEST(VTS_L1_AVBuffer, getAllocList_pos)
 
         AVBUFFER_DESTROY_POOL_SUCCESS(gAVBufferManager, videoPool);
         AVBUFFER_DESTROY_POOL_SUCCESS(gAVBufferManager, audioPool);
-
-        if (secureHeap)
-        {
-            AVBUFFER_CLOSE_VIDEODECODER(videoDecoder, videoDecoderController);
-            AVBUFFER_CLOSE_AUDIODECODER(audioDecoder, audioDecoderController);
-        }
     }
 }
 
