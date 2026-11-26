@@ -58,7 +58,7 @@ namespace
     }
 }
 
-class AVBufferHelperImpl : public IAVBufferHelper
+class AVBufferHelperImpl final : public IAVBufferHelper
 {
 public:
     void* mapHandle(uint64_t handle, uint32_t* size) override
@@ -194,8 +194,49 @@ public:
     }
 };
 
+// AV Buffer 0.2.1.0: reference-counted singleton. getAVBufferHelperInstance() acquires a
+// reference, releaseAVBufferHelperInstance() drops it and the instance is destroyed (and any
+// regions still mapped are unmapped) when the count reaches zero.
+namespace
+{
+    std::mutex gInstanceMutex;
+    AVBufferHelperImpl* gInstance = nullptr;
+    unsigned int gRefCount = 0;
+
+    void unmapAllRegions()
+    {
+        std::lock_guard<std::mutex> lock(gMapMutex);
+        for (auto& entry : gMappedRegions)
+        {
+            munmap(entry.second.ptr, entry.second.size);
+        }
+        gMappedRegions.clear();
+    }
+}
+
 IAVBufferHelper* getAVBufferHelperInstance()
 {
-    static AVBufferHelperImpl instance;
-    return &instance;
+    std::lock_guard<std::mutex> lock(gInstanceMutex);
+    if (gInstance == nullptr)
+    {
+        gInstance = new AVBufferHelperImpl();
+    }
+    ++gRefCount;
+    return gInstance;
+}
+
+void releaseAVBufferHelperInstance(IAVBufferHelper* instance)
+{
+    std::lock_guard<std::mutex> lock(gInstanceMutex);
+    if (instance == nullptr || instance != gInstance || gRefCount == 0)
+    {
+        fprintf(stderr, "releaseAVBufferHelperInstance: invalid or unbalanced release ignored\n");
+        return;
+    }
+    if (--gRefCount == 0)
+    {
+        unmapAllRegions();
+        delete gInstance;
+        gInstance = nullptr;
+    }
 }
