@@ -29,6 +29,9 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <cstring>
+#include <binder/IServiceManager.h>
+#include "com/rdk/hal/videodecoder/IVideoDecoderManager.h"
+#include "com/rdk/hal/audiodecoder/IAudioDecoderManager.h"
 
 using namespace com::rdk::hal;
 using namespace com::rdk::hal::avbuffer;
@@ -40,6 +43,41 @@ namespace com {
     namespace rdk {
         namespace hal {
             namespace avbuffer {
+
+                /* IAVBuffer: a secure pool can only be created for a configured (opened) decoder,
+                 * otherwise EX_ILLEGAL_STATE. The decoder services are queried without blocking
+                 * (checkService); an unreachable decoder is treated as not configured. */
+                static bool isVideoDecoderConfigured(const IVideoDecoder::Id& videoDecoderId)
+                {
+                    ::android::sp<IVideoDecoderManager> manager = ::android::interface_cast<IVideoDecoderManager>(
+                        ::android::defaultServiceManager()->checkService(::android::String16(IVideoDecoderManager::serviceName().c_str())));
+                    ::android::sp<IVideoDecoder> decoder;
+                    videodecoder::State state = videodecoder::State::UNKNOWN;
+                    if (manager == nullptr || !manager->getVideoDecoder(videoDecoderId, &decoder).isOk() ||
+                        decoder == nullptr || !decoder->getState(&state).isOk())
+                    {
+                        return false;
+                    }
+                    return state != videodecoder::State::UNKNOWN && state != videodecoder::State::CLOSED;
+                }
+
+                static bool isAudioDecoderConfigured(const IAudioDecoder::Id& audioDecoderId)
+                {
+                    if (audioDecoderId.value == IAudioDecoder::Id::UNDEFINED)
+                    {
+                        return false; /* no decoder to configure */
+                    }
+                    ::android::sp<IAudioDecoderManager> manager = ::android::interface_cast<IAudioDecoderManager>(
+                        ::android::defaultServiceManager()->checkService(::android::String16(IAudioDecoderManager::serviceName().c_str())));
+                    ::android::sp<IAudioDecoder> decoder;
+                    audiodecoder::State state = audiodecoder::State::UNKNOWN;
+                    if (manager == nullptr || !manager->getAudioDecoder(audioDecoderId, &decoder).isOk() ||
+                        decoder == nullptr || !decoder->getState(&state).isOk())
+                    {
+                        return false;
+                    }
+                    return state != audiodecoder::State::UNKNOWN && state != audiodecoder::State::CLOSED;
+                }
 
                 // Pool.aidl has no INVALID_POOL constant; poolHandleCounter starts at 1,
                 // so 0 is our own sentinel for "no pool".
@@ -126,6 +164,8 @@ namespace com {
 
                 Status AVBuffer::createVideoPool(bool secureHeap, const IVideoDecoder::Id& videoDecoderId, const ::android::sp<IAVBufferSpaceListener>& listener, Pool* _aidl_return)
                 {
+                    // Query the decoder before taking the pool lock (binder call)
+                    const bool decoderConfigured = secureHeap && isVideoDecoderConfigured(videoDecoderId);
                     std::lock_guard<std::mutex> lock(poolMutex);
                     int32_t found = 0;
                     _aidl_return->handle = POOL_INVALID_HANDLE;
@@ -146,6 +186,10 @@ namespace com {
                     if(!found)
                     {
                         return Status::fromExceptionCode(Status::EX_ILLEGAL_ARGUMENT);
+                    }
+                    if (secureHeap && !decoderConfigured)
+                    {
+                        return Status::fromExceptionCode(Status::EX_ILLEGAL_STATE);
                     }
                     // Check for available memory and create pool
                     if (secureHeap)
@@ -204,6 +248,8 @@ namespace com {
 
                 Status AVBuffer::createAudioPool(bool secureHeap, const IAudioDecoder::IAudioDecoder::Id &audioDecoderId, const ::android::sp<IAVBufferSpaceListener> &listener, Pool *_aidl_return)
                 {
+                    // Query the decoder before taking the pool lock (binder call)
+                    const bool decoderConfigured = secureHeap && isAudioDecoderConfigured(audioDecoderId);
                     std::lock_guard<std::mutex> lock(poolMutex);
                     int32_t found = 0;
                     _aidl_return->handle = POOL_INVALID_HANDLE;
@@ -224,6 +270,10 @@ namespace com {
                         }
                     }
 
+                    if (secureHeap && !decoderConfigured)
+                    {
+                        return Status::fromExceptionCode(Status::EX_ILLEGAL_STATE);
+                    }
                     // Check for available memory and create pool
                     if (secureHeap)
                     {
